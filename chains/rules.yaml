@@ -1,0 +1,173 @@
+# ShadowScan - Chaining Rules
+# Format:
+#   trigger: finding type or flag that activates the chain
+#   condition: optional flag that must be set
+#   next_modules: list of modules to run next
+#   priority: 1 (highest) - 5 (lowest)
+#   reason: human-readable explanation of the chain logic
+
+chains:
+
+  # --- RECON CHAINS ---
+
+  - trigger: endpoint_discovered
+    next_modules: [exposure, auth]
+    priority: 2
+    reason: "Every new endpoint gets checked for secrets and auth bypass"
+
+  - trigger: tech_detected
+    condition: tech_contains_graphql
+    next_modules: [api_graphql]
+    priority: 1
+    reason: "GraphQL detected → run introspection and batch query abuse"
+
+  - trigger: tech_detected
+    condition: tech_contains_wordpress
+    next_modules: [auth_wp, exposure_wp]
+    priority: 1
+    reason: "WordPress detected → check xmlrpc, user enum, plugin exposure"
+
+  # --- AUTH CHAINS ---
+
+  - trigger: user_enumeration
+    next_modules: [auth_bruteforce_check, auth_token_analysis]
+    priority: 2
+    reason: "User enum confirmed → check if brute-force is possible, extract token patterns"
+
+  - trigger: token_exposed
+    next_modules: [auth_replay, injection_api]
+    priority: 1
+    reason: "Exposed token → try replaying on other endpoints, check for injection via token params"
+
+  - trigger: auth_bypass
+    next_modules: [idor, injection, exposure]
+    priority: 1
+    reason: "Auth bypass → full scan of authenticated surface"
+
+  - trigger: weak_auth
+    next_modules: [idor, mass_assignment]
+    priority: 2
+    reason: "Weak auth → likely IDOR or mass assignment possible"
+
+  # --- INJECTION CHAINS ---
+
+  - trigger: sqli
+    next_modules: [injection_sqli_deep, exposure]
+    priority: 1
+    reason: "SQLi confirmed → go deeper (union, blind, OOB), check for DB info exposure"
+
+  - trigger: ssti
+    next_modules: [injection_ssti_rce]
+    priority: 1
+    reason: "SSTI confirmed → attempt RCE payloads"
+
+  - trigger: open_redirect
+    next_modules: [auth_token_steal]
+    priority: 2
+    reason: "Open redirect → check if OAuth redirect_uri can be abused for token theft"
+
+  # --- EXPOSURE CHAINS ---
+
+  - trigger: secret_exposed
+    next_modules: [auth_replay, recon_expand]
+    priority: 1
+    reason: "Secret/key exposed → try using it for auth, expand recon scope"
+
+  - trigger: api_key_leaked
+    next_modules: [auth_replay]
+    priority: 1
+    reason: "API key leaked → immediately test it against the API"
+
+  - trigger: error_disclosure
+    next_modules: [injection, recon_techstack]
+    priority: 2
+    reason: "Error disclosure → reveals tech stack, try targeted injection"
+
+  - trigger: sensitive_endpoint
+    next_modules: [auth, idor]
+    priority: 1
+    reason: "Sensitive endpoint found → check if auth is required and if IDOR exists"
+
+  # --- API CHAINS ---
+
+  - trigger: unauthenticated_api
+    next_modules: [injection_api, exposure, idor]
+    priority: 1
+    reason: "Unauthenticated API → inject, check for data exposure, test IDOR on IDs"
+
+  - trigger: graphql_introspection
+    next_modules: [injection_graphql, idor]
+    priority: 1
+    reason: "GraphQL introspection open → map schema, test each query for injection and IDOR"
+
+  - trigger: rate_limit_missing
+    next_modules: [auth_bruteforce_check]
+    priority: 3
+    reason: "No rate limiting → brute force is viable"
+
+  - trigger: mass_assignment
+    next_modules: [auth_privilege_escalation]
+    priority: 1
+    reason: "Mass assignment → try assigning admin/privileged roles"
+
+  # --- IDOR CHAINS ---
+
+  - trigger: idor
+    next_modules: [exposure, auth_privilege_escalation]
+    priority: 1
+    reason: "IDOR confirmed → check what data is exposed, attempt privilege escalation via object manipulation"
+
+  # --- CHAINED FINDING CHAINS ---
+
+  - trigger: chained_finding
+    condition: has_multiple_criticals
+    next_modules: [llm_deep_analysis]
+    priority: 1
+    reason: "Multiple critical findings → trigger LLM to reason about combined impact"
+
+  # --- INJECTION CHAINS ---
+
+  - trigger: sqli
+    next_modules: [injection]
+    priority: 1
+    reason: "SQLi found → run full injection module across all params"
+
+  - trigger: ssti
+    next_modules: [injection]
+    priority: 1
+    reason: "SSTI found → deepen injection coverage, attempt RCE payloads"
+
+  - trigger: lfi
+    next_modules: [injection]
+    priority: 1
+    reason: "LFI found → check for RFI, log poisoning via other params"
+
+  - trigger: ssrf
+    next_modules: [exposure, auth]
+    priority: 1
+    reason: "SSRF confirmed → fetch internal endpoints for secrets and auth bypass"
+
+  - trigger: cmdi
+    next_modules: [exposure]
+    priority: 1
+    reason: "Command injection → run exposure module to find more injectable params"
+
+  - trigger: xss
+    next_modules: [auth_token_steal]
+    priority: 2
+    reason: "XSS confirmed → attempt cookie/token theft via XSS payload"
+
+  - trigger: open_redirect
+    next_modules: [auth_token_steal]
+    priority: 2
+    reason: "Open redirect → check for OAuth redirect_uri abuse for token theft"
+
+  - trigger: unauthenticated_api
+    next_modules: [injection]
+    priority: 1
+    reason: "Unauthenticated API → run injection module against exposed endpoints"
+
+  - trigger: endpoint_discovered
+    next_modules: [injection]
+    priority: 3
+    reason: "New endpoints discovered → test parameters for injection"
