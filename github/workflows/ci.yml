@@ -1,0 +1,84 @@
+name: ShadowScan CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Import check
+        run: |
+          python -c "
+          from core.scanner import Scanner
+          from core.context import ScanContext, Finding, FindingType, Severity
+          from core.chainer import ChainEngine
+          from core.llm_advisor import LLMAdvisor
+          from modules.recon import ReconModule
+          from modules.exposure import ExposureModule
+          from modules.auth import AuthModule
+          from modules.api import APIModule
+          from modules.injection import InjectionModule
+          from output.terminal import TerminalOutput
+          from output.reporter import Reporter
+          print('All imports OK')
+          "
+
+      - name: Chaining engine test
+        run: |
+          python -c "
+          from core.context import ScanContext, Finding, FindingType, Severity
+          from core.chainer import ChainEngine
+
+          engine = ChainEngine()
+          ctx = ScanContext('https://test.com', {})
+          ctx.add_finding(Finding(type=FindingType.UNAUTHENTICATED_API, severity=Severity.HIGH, title='Test'))
+          chains = engine.get_next_modules(ctx, 'api')
+          assert any(c['module'] == 'injection' for c in chains), 'injection not triggered'
+
+          engine.reset()
+          ctx2 = ScanContext('https://test.com', {})
+          ctx2.add_finding(Finding(type=FindingType.SSRF, severity=Severity.CRITICAL, title='SSRF'))
+          chains2 = engine.get_next_modules(ctx2, 'injection')
+          assert any(c['module'] == 'exposure' for c in chains2), 'exposure not triggered by SSRF'
+
+          print('Chaining engine OK')
+          "
+
+      - name: Report generation test
+        run: |
+          python -c "
+          from core.context import ScanContext, Finding, FindingType, Severity
+          from output.reporter import generate_html_report
+
+          ctx = ScanContext('https://test.com', {})
+          ctx.add_finding(Finding(type=FindingType.SQLI, severity=Severity.CRITICAL,
+                                  title='SQLi', url='https://test.com/search?q=x', module='injection'))
+          ctx.add_finding(Finding(type=FindingType.XSS, severity=Severity.HIGH,
+                                  title='XSS', url='https://test.com/search?q=x', module='injection'))
+          ctx.technologies.append('MySQL')
+          html = generate_html_report(ctx)
+          assert 'ShadowScan' in html
+          assert 'CRITICAL' in html
+          print('Report generation OK')
+          "
+
+      - name: CLI help check
+        run: python shadowscan.py --help
