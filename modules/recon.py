@@ -4,7 +4,7 @@ Endpoint discovery, technology fingerprinting, and attack surface mapping.
 """
 
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
 from urllib.parse import urljoin, urlparse
 from core.scanner import Scanner, ScanResponse
 from core.context import ScanContext, Finding, FindingType, Severity
@@ -120,7 +120,7 @@ class ReconModule:
 
     def _classify_endpoint(
         self, url: str, path: str, resp: ScanResponse
-    ) -> Finding | None:
+    ) -> Optional[Finding]:
         """Classify a 200-response endpoint by type."""
 
         # API docs — high value
